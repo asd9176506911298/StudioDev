@@ -24,7 +24,7 @@ namespace AssetStudio
                     float minHeight = spriteAtlasData.textureRect.height;
                     float minWidth = spriteAtlasData.textureRect.width;
 
-                    float thresholdMultiplier = 1.5f;
+                    float thresholdMultiplier = 3f;
                     foreach (var entry in m_SpriteAtlas.m_RenderDataMap.Values)
                     {
                         if (entry.textureRect.height <= minHeight * thresholdMultiplier && entry.textureRect.width <= minWidth * thresholdMultiplier)
