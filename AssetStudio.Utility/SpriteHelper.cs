@@ -19,7 +19,32 @@ namespace AssetStudio
             {
                 if (m_SpriteAtlas.m_RenderDataMap.TryGetValue(m_Sprite.m_RenderDataKey, out var spriteAtlasData) && spriteAtlasData.texture.TryGet(out var m_Texture2D))
                 {
-                    return CutImage(m_Sprite, m_Texture2D, spriteAtlasData.textureRect, spriteAtlasData.textureRectOffset, spriteAtlasData.downscaleMultiplier, spriteAtlasData.settingsRaw);
+                    float maxHeight = 0;
+                    float maxWidth = 0;
+                    float minHeight = spriteAtlasData.textureRect.height;
+                    float minWidth = spriteAtlasData.textureRect.width;
+
+                    float thresholdMultiplier = 1.5f;
+                    foreach (var entry in m_SpriteAtlas.m_RenderDataMap.Values)
+                    {
+                        if (entry.textureRect.height <= minHeight * thresholdMultiplier && entry.textureRect.width <= minWidth * thresholdMultiplier)
+                        {
+                            if (entry.textureRect.height > maxHeight)
+                            {
+                                maxHeight = entry.textureRect.height;
+                            }
+                            if (entry.textureRect.width > maxWidth)
+                            {
+                                maxWidth = entry.textureRect.width;
+                            }
+                        }
+                    }
+
+                    Vector2 maxSzie = new Vector2(maxWidth, maxHeight);
+
+                    Console.WriteLine($"Largest Height: {maxHeight}");
+                    Console.WriteLine($"Largest Width: {maxWidth}");
+                    return CutImage(m_Sprite, m_Texture2D, spriteAtlasData.textureRect, spriteAtlasData.textureRectOffset, spriteAtlasData.downscaleMultiplier, spriteAtlasData.settingsRaw, maxSzie);
                 }
             }
             else
@@ -32,7 +57,7 @@ namespace AssetStudio
             return null;
         }
 
-        private static Image<Bgra32> CutImage(Sprite m_Sprite, Texture2D m_Texture2D, Rectf textureRect, Vector2 textureRectOffset, float downscaleMultiplier, SpriteSettings settingsRaw)
+        private static Image<Bgra32> CutImage(Sprite m_Sprite, Texture2D m_Texture2D, Rectf textureRect, Vector2 textureRectOffset, float downscaleMultiplier, SpriteSettings settingsRaw, Vector2 largestSpriteSize = default)
         {
             var originalImage = m_Texture2D.ConvertToImage(false);
             if (originalImage != null)
@@ -45,35 +70,55 @@ namespace AssetStudio
                         var height = (int)(m_Texture2D.m_Height / downscaleMultiplier);
                         originalImage.Mutate(x => x.Resize(width, height));
                     }
+
+                    // 使用 m_Rect 的尺寸進行裁剪
                     var rectX = (int)Math.Floor(textureRect.x);
                     var rectY = (int)Math.Floor(textureRect.y);
-                    var rectRight = (int)Math.Ceiling(textureRect.x + textureRect.width);
-                    var rectBottom = (int)Math.Ceiling(textureRect.y + textureRect.height);
-                    rectRight = Math.Min(rectRight, originalImage.Width);
-                    rectBottom = Math.Min(rectBottom, originalImage.Height);
+                    var targetWidth = (int)Math.Ceiling(textureRect.width);
+                    var targetHeight = (int)Math.Ceiling(textureRect.height);
+                    var rectRight = Math.Min(rectX + targetWidth, originalImage.Width);
+                    var rectBottom = Math.Min(rectY + targetHeight, originalImage.Height);
                     var rect = new Rectangle(rectX, rectY, rectRight - rectX, rectBottom - rectY);
+
                     var spriteImage = originalImage.Clone(x => x.Crop(rect));
+
+                    // 創建包含偏移的畫布
+                    var canvasWidth = (int)m_Sprite.m_Rect.width;
+                    var canvasHeight = (int)m_Sprite.m_Rect.height;
+                    var unifiedImage = new Image<Bgra32>(canvasWidth, canvasHeight, SixLabors.ImageSharp.Color.Transparent);
+
+                    // 計算樞軸點並定位
+                    Vector2 pivotPosition = new Vector2(
+                        m_Sprite.m_Rect.width * m_Sprite.m_Pivot.X + m_Sprite.m_Offset.X,
+                        m_Sprite.m_Rect.height * m_Sprite.m_Pivot.Y + m_Sprite.m_Offset.Y
+                    );
+                    Vector2 adjustedPivot = pivotPosition - textureRectOffset;
+                    var placeX = (int)Math.Round((canvasWidth * 0.5f - adjustedPivot.X));
+                    var placeY = (int)Math.Round(-adjustedPivot.Y + (adjustedPivot.Y < 0 ? -largestSpriteSize.Y / 2 : largestSpriteSize.Y));
+
+                    unifiedImage.Mutate(x => x.DrawImage(spriteImage, new Point(placeX, placeY), 1f));
+
+                    // 處理旋轉與翻轉
                     if (settingsRaw.packed == 1)
                     {
-                        //RotateAndFlip
                         switch (settingsRaw.packingRotation)
                         {
                             case SpritePackingRotation.FlipHorizontal:
-                                spriteImage.Mutate(x => x.Flip(FlipMode.Horizontal));
+                                unifiedImage.Mutate(x => x.Flip(FlipMode.Horizontal));
                                 break;
                             case SpritePackingRotation.FlipVertical:
-                                spriteImage.Mutate(x => x.Flip(FlipMode.Vertical));
+                                unifiedImage.Mutate(x => x.Flip(FlipMode.Vertical));
                                 break;
                             case SpritePackingRotation.Rotate180:
-                                spriteImage.Mutate(x => x.Rotate(180));
+                                unifiedImage.Mutate(x => x.Rotate(180));
                                 break;
                             case SpritePackingRotation.Rotate90:
-                                spriteImage.Mutate(x => x.Rotate(270));
+                                unifiedImage.Mutate(x => x.Rotate(270));
                                 break;
                         }
                     }
 
-                    //Tight
+                    // 處理緊密包裝
                     if (settingsRaw.packingMode == SpritePackingMode.Tight)
                     {
                         try
@@ -81,8 +126,10 @@ namespace AssetStudio
                             var triangles = GetTriangles(m_Sprite.m_RD);
                             var polygons = triangles.Select(x => new Polygon(new LinearLineSegment(x.Select(y => new PointF(y.X, y.Y)).ToArray()))).ToArray();
                             IPathCollection path = new PathCollection(polygons);
-                            var matrix = Matrix3x2.CreateScale(m_Sprite.m_PixelsToUnits);
-                            matrix *= Matrix3x2.CreateTranslation(m_Sprite.m_Rect.width * m_Sprite.m_Pivot.X - textureRectOffset.X, m_Sprite.m_Rect.height * m_Sprite.m_Pivot.Y - textureRectOffset.Y);
+                            var matrix = Matrix3x2.CreateTranslation(
+                                m_Sprite.m_Rect.width * m_Sprite.m_Pivot.X - textureRectOffset.X,
+                                m_Sprite.m_Rect.height * m_Sprite.m_Pivot.Y - textureRectOffset.Y
+                            );
                             path = path.Transform(matrix);
                             var options = new DrawingOptions
                             {
@@ -95,24 +142,23 @@ namespace AssetStudio
                             using (var mask = new Image<Bgra32>(rect.Width, rect.Height, SixLabors.ImageSharp.Color.Black))
                             {
                                 mask.Mutate(x => x.Fill(options, SixLabors.ImageSharp.Color.Red, path));
-                                var bursh = new ImageBrush(mask);
-                                spriteImage.Mutate(x => x.Fill(options, bursh));
+                                var brush = new ImageBrush(mask);
+                                spriteImage.Mutate(x => x.Fill(options, brush));
                                 spriteImage.Mutate(x => x.Flip(FlipMode.Vertical));
                                 return spriteImage;
                             }
                         }
                         catch
                         {
-                            // ignored
+                            // 記錄錯誤以便調試
+                            Console.WriteLine($"緊密包裝處理失敗: {m_Sprite.m_Name}");
                         }
                     }
 
-                    //Rectangle
-                    spriteImage.Mutate(x => x.Flip(FlipMode.Vertical));
-                    return spriteImage;
+                    unifiedImage.Mutate(x => x.Flip(FlipMode.Vertical));
+                    return unifiedImage;
                 }
             }
-
             return null;
         }
 
