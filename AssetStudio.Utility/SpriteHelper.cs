@@ -110,7 +110,7 @@ namespace AssetStudio
                     var placeX = (int)Math.Round((canvasWidth * 0.5f - adjustedPivot.X));
                     var placeY = (int)Math.Round(-adjustedPivot.Y + (adjustedPivot.Y < 0 ? -largestSpriteSize.Y / 2 : largestSpriteSize.Y / 2));
 
-                    unifiedImage.Mutate(x => x.DrawImage(spriteImage, new Point(placeX, placeY), 1f));
+                    unifiedImage.Mutate(x => x.DrawImage(spriteImage, new Point(placeX, (int)-adjustedPivot.Y+ (int)pivotPosition.Y), 1f));
 
                     // 處理旋轉與翻轉
                     if (settingsRaw.packed == 1)
