@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Text.RegularExpressions;
 
 namespace AssetStudio
 {
@@ -24,27 +25,40 @@ namespace AssetStudio
                     float minHeight = spriteAtlasData.textureRect.height;
                     float minWidth = spriteAtlasData.textureRect.width;
 
-                    float thresholdMultiplier = 3f;
-                    foreach (var entry in m_SpriteAtlas.m_RenderDataMap.Values)
+                    // 從 m_Sprite.m_Name 提取前綴並去掉數字
+                    string characterPrefix = Regex.Replace(m_Sprite.m_Name, @"\d+$", ""); // 移除末尾數字
+                    float thresholdMultiplier = 1f;
+
+                    // 遍歷 m_PackedSprites 以獲取所有 Sprite 名稱及其尺寸
+                    foreach (var spritePtr in m_SpriteAtlas.m_PackedSprites)
                     {
-                        if (entry.textureRect.height <= minHeight * thresholdMultiplier && entry.textureRect.width <= minWidth * thresholdMultiplier)
+                        if (!spritePtr.IsNull && spritePtr.TryGet(out var sprite))
                         {
-                            if (entry.textureRect.height > maxHeight)
+                            // 檢查 Sprite 名稱是否以 characterPrefix 開頭
+                            if (sprite.m_Name.StartsWith(characterPrefix, StringComparison.OrdinalIgnoreCase))
                             {
-                                maxHeight = entry.textureRect.height;
-                            }
-                            if (entry.textureRect.width > maxWidth)
-                            {
-                                maxWidth = entry.textureRect.width;
+                                // 從 m_RenderDataMap 獲取對應的 SpriteAtlasData
+                                if (m_SpriteAtlas.m_RenderDataMap.TryGetValue(sprite.m_RenderDataKey, out var data))
+                                {
+                                    if (data.textureRect.height > maxHeight)
+                                    {
+                                        maxHeight = data.textureRect.height;
+                                    }
+                                    if (data.textureRect.width > maxWidth)
+                                    {
+                                        maxWidth = data.textureRect.width;
+                                    }
+                                }
                             }
                         }
                     }
 
-                    Vector2 maxSzie = new Vector2(maxWidth, maxHeight);
+                    Vector2 maxSize = new Vector2(maxWidth, maxHeight);
 
-                    Console.WriteLine($"Largest Height: {maxHeight}");
-                    Console.WriteLine($"Largest Width: {maxWidth}");
-                    return CutImage(m_Sprite, m_Texture2D, spriteAtlasData.textureRect, spriteAtlasData.textureRectOffset, spriteAtlasData.downscaleMultiplier, spriteAtlasData.settingsRaw, maxSzie);
+                    Console.WriteLine($"Character Prefix: {characterPrefix}");
+                    Console.WriteLine($"Largest Height (Character Sprites): {maxHeight}");
+                    Console.WriteLine($"Largest Width (Character Sprites): {maxWidth}");
+                    return CutImage(m_Sprite, m_Texture2D, spriteAtlasData.textureRect, spriteAtlasData.textureRectOffset, spriteAtlasData.downscaleMultiplier, spriteAtlasData.settingsRaw, maxSize);
                 }
             }
             else
@@ -94,7 +108,7 @@ namespace AssetStudio
                     );
                     Vector2 adjustedPivot = pivotPosition - textureRectOffset;
                     var placeX = (int)Math.Round((canvasWidth * 0.5f - adjustedPivot.X));
-                    var placeY = (int)Math.Round(-adjustedPivot.Y + (adjustedPivot.Y < 0 ? -largestSpriteSize.Y / 2 : largestSpriteSize.Y));
+                    var placeY = (int)Math.Round(-adjustedPivot.Y + (adjustedPivot.Y < 0 ? -largestSpriteSize.Y / 2 : largestSpriteSize.Y / 2));
 
                     unifiedImage.Mutate(x => x.DrawImage(spriteImage, new Point(placeX, placeY), 1f));
 
